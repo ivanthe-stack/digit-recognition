@@ -81,11 +81,18 @@ def load_split(root: str, split: str, limit: Optional[int] = None) -> Tuple[jnp.
     if images_np.shape[0] != labels_np.shape[0]:
         raise ValueError("Images/labels count mismatch.")
 
-    if limit is not None:
-        # Pick `limit` random indices without replacement
-        idx = np.random.choice(images_np.shape[0], size=limit, replace=False)
-        images_np = images_np[idx]
-        labels_np = labels_np[idx]
+    # Използваме net.size_dataset за да ограничим диапазона, от който ще избираме
+    max_range = min(net.size_dataset, images_np.shape[0])
+    if limit is None:
+        limit = max_range
+    limit = min(limit, max_range)
+
+    # Вземаме случайни индекси без повторения от 0..max_range-1
+    rng = np.random.default_rng()
+    idxs = rng.choice(max_range, size=limit, replace=False)
+
+    images_np = images_np[idxs]
+    labels_np = labels_np[idxs]
 
     images = jnp.asarray(images_np, dtype=jnp.float32)
     labels = jnp.asarray(labels_np, dtype=jnp.int32)
@@ -188,14 +195,12 @@ def train_full_batch(
     param_path: str = "params.pkl",
     epochs: int = 1000,
     lr: float = 0.25,
-    max_train: int = 60000,
     seed: int = 0,
     log_every: int = 10,
     test_eval_every: int = 0,
-    max_test: Optional[int] = None,
 ) -> None:
-    X_train, y_train = load_split(data_root, "train", limit=max_train)
-    X_test,  y_test  = load_split(data_root, "test",  limit=max_test)
+    X_train, y_train = load_split(data_root, "train", limit=None)  # вече взема limit от net.size_dataset
+    X_test,  y_test  = load_split(data_root, "test", limit=None)
 
     params = load_params(param_path)
     if params is not None:
@@ -274,9 +279,7 @@ if __name__ == "__main__":
         param_path="params.pkl",
         epochs=net.number_of_epochs,
         lr=net.learning_rate,
-        max_train=net.images_to_train_on,
         seed=np.random.randint(0, 2**31 - 1),
         log_every=10,
         test_eval_every=50,
-        max_test=None,
     )
