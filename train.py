@@ -1,9 +1,3 @@
-"""
-Това е малко-сложна имплементация на тренирането с JAX.
-
-Не е нужно да я четете или разбирате, ще стигнем до такъв код много по-късно в курса.
-"""
-
 from __future__ import annotations
 import pickle
 import struct
@@ -82,8 +76,10 @@ def load_split(root: str, split: str, limit: Optional[int] = None) -> Tuple[jnp.
         raise ValueError("Images/labels count mismatch.")
 
     if limit is not None:
-        images_np = images_np[:limit]
-        labels_np = labels_np[:limit]
+        # Pick `limit` random indices without replacement
+        idx = np.random.choice(images_np.shape[0], size=limit, replace=False)
+        images_np = images_np[idx]
+        labels_np = labels_np[idx]
 
     images = jnp.asarray(images_np, dtype=jnp.float32)
     labels = jnp.asarray(labels_np, dtype=jnp.int32)
@@ -275,7 +271,6 @@ if __name__ == "__main__":
         max_train=net.images_to_train_on,
         seed=np.random.randint(0, 2**31 - 1),
         log_every=10,
-        test_eval_every=0,
+        test_eval_every=50,
         max_test=None,
     )
-
