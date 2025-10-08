@@ -199,32 +199,25 @@ def train_full_batch(
     log_every: int = 10,
     test_eval_every: int = 0,
 ) -> None:
-    X_train, y_train = load_split(data_root, "train", limit=None)  # вече взема limit от net.size_dataset
-    X_test,  y_test  = load_split(data_root, "test", limit=None)
+    # Зареждаме тестовия набор веднъж
+    X_test, y_test = load_split(data_root, "test", limit=None)
 
     params = load_params(param_path)
-    if params is not None:
-        in_dim = int(X_train.shape[1])
-        out_dim = int(jnp.max(y_train)) + 1
-        first_W = params[0]["weights"]
-        last_W = params[-1]["weights"]
-        if first_W.shape[0] != in_dim:
-            raise ValueError(f"Loaded params expect input dim {first_W.shape[0]} but data has {in_dim}.")
-        if last_W.shape[1] != out_dim:
-            raise ValueError(f"Loaded params expect {last_W.shape[1]} classes but data has {out_dim}.")
-    else:
-        layer_sizes = [int(X_train.shape[1]), 128, 10]
+    if params is None:
+        layer_sizes = [28 * 28, 128, 10]  # пример за MNIST
         params = init_params(layer_sizes, seed=seed)
 
     lr32 = jnp.float32(lr)
 
-    _ = eval_metrics.lower(params, X_train, y_train).compile()
-    _ = eval_metrics.lower(params, X_test,  y_test ).compile()
-    _ = train_step.lower(params, X_train, y_train, lr32).compile()
+    _ = eval_metrics.lower(params, X_test, y_test).compile()
+    _ = train_step.lower(params, X_test, y_test, lr32).compile()
 
     start_time = time.time()
     try:
         for epoch in range(epochs):
+            # 🔁 Всяка епоха зареждаме нова случайна извадка от тренировъчните данни
+            X_train, y_train = load_split(data_root, "train", limit=None)
+
             params, loss = train_step(params, X_train, y_train, lr32)
 
             if epoch % log_every == 0 or epoch == epochs - 1:
@@ -247,7 +240,7 @@ def train_full_batch(
         print("\n[Ctrl+C] Stopping… computing final metrics and saving current params.")
         try:
             l_tr, a_tr = eval_metrics(params, X_train, y_train)
-            l_te, a_te = eval_metrics(params, X_test,  y_test)
+            l_te, a_te = eval_metrics(params, X_test, y_test)
             print(
                 f"Final (interrupted) - train: loss={float(l_tr):.4f}, acc={float(a_tr)*100:.2f}% "
                 f"- test: loss={float(l_te):.4f}, acc={float(a_te)*100:.2f}%"
@@ -281,5 +274,5 @@ if __name__ == "__main__":
         lr=net.learning_rate,
         seed=np.random.randint(0, 2**31 - 1),
         log_every=10,
-        test_eval_every=50,
+        test_eval_every=0,
     )
