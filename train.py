@@ -74,22 +74,43 @@ def _read_idx_labels(path: Path) -> np.ndarray:
 
 
 def load_split(root: str, split: str, limit: Optional[int] = None) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    img_path, lbl_path = _find_idx_files(split, root)
-    images_np = _read_idx_images(img_path)
-    labels_np = _read_idx_labels(lbl_path)
+    # Кешираме данните в паметта, за да не ги зареждаме отново всеки път
+    global _cached_data
+    if "_cached_data" not in globals():
+        _cached_data = {}
+
+    key = (root, split)
+    if key not in _cached_data:
+        img_path, lbl_path = _find_idx_files(split, root)
+        images_np = _read_idx_images(img_path)
+        labels_np = _read_idx_labels(lbl_path)
+        _cached_data[key] = (images_np, labels_np)
+    else:
+        images_np, labels_np = _cached_data[key]
 
     if images_np.shape[0] != labels_np.shape[0]:
         raise ValueError("Images/labels count mismatch.")
 
-    # Използваме net.size_dataset за да ограничим диапазона, от който ще избираме
+    # Детерминистичен цикъл на индексите вместо случайни
+    global _epoch_counter
+    try:
+        _epoch_counter += 1
+    except NameError:
+        _epoch_counter = 0
+
     max_range = min(net.size_dataset, images_np.shape[0])
     if limit is None:
         limit = max_range
     limit = min(limit, max_range)
 
-    # Вземаме случайни индекси без повторения от 0..max_range-1
-    rng = np.random.default_rng()
-    idxs = rng.choice(max_range, size=limit, replace=False)
+    start = (_epoch_counter * limit) % max_range
+    end = start + limit
+
+    if end <= max_range:
+        idxs = np.arange(start, end)
+    else:
+        # Препълване – взимаме края и началото
+        idxs = np.concatenate([np.arange(start, max_range), np.arange(0, end - max_range)])
 
     images_np = images_np[idxs]
     labels_np = labels_np[idxs]
@@ -215,8 +236,8 @@ def train_full_batch(
     start_time = time.time()
     try:
         for epoch in range(epochs):
-            # 🔁 Всяка епоха зареждаме нова случайна извадка от тренировъчните данни
-            X_train, y_train = load_split(data_root, "train", limit=None)
+            # Всяка епоха зареждаме нова част от тренировъчните данни (циклично)
+            X_train, y_train = load_split(data_root, "train", limit=net.images_to_train_on)
 
             params, loss = train_step(params, X_train, y_train, lr32)
 
