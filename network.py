@@ -1,13 +1,33 @@
 # Тук ще дефинирам главните параметри:
-network_size = [784, 16, 16, 10]
-learning_rate = 0.1
-number_of_epochs = 1000
-images_to_train_on = 10000
-
 
 import math
+from typing import Dict, Any
+
+from config_store import load_config
 from helpers import get_image_data, print_ascii
 from param_io import load_params
+
+
+_CONFIG_CACHE: Dict[str, Any] = {}
+
+
+def _apply_config(cfg: Dict[str, Any]) -> None:
+    global network_size, learning_rate, number_of_epochs, images_to_train_on
+    network_size = list(cfg["network_size"])
+    learning_rate = float(cfg["learning_rate"])
+    number_of_epochs = int(cfg["number_of_epochs"])
+    images_to_train_on = int(cfg["images_to_train_on"])
+
+
+def refresh_config() -> Dict[str, Any]:
+    global _CONFIG_CACHE
+    cfg = load_config()
+    _CONFIG_CACHE = cfg
+    _apply_config(cfg)
+    return dict(cfg)
+
+
+refresh_config()
 
 def relu(x):
     return max(0, x)

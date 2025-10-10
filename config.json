@@ -1,0 +1,14 @@
+{
+  "data_root": "data",
+  "images_to_train_on": 10000,
+  "learning_rate": 0.1,
+  "max_test_examples": null,
+  "network_size": [
+    784,
+    16,
+    16,
+    10
+  ],
+  "number_of_epochs": 10000,
+  "param_path": "params.pkl"
+}
