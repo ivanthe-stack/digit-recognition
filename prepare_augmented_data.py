@@ -9,10 +9,11 @@ from jax.scipy.ndimage import map_coordinates
 # --- CONFIG ---
 augmentations_per_image = 10
 max_shift = 5
-batch_size = 2000  # adjust for available RAM
+max_angle = jnp.pi / 12   # ±15 degrees
+zoom_range = (0.9, 1.1)
+batch_size = 2000         # adjust for RAM
 # ---------------
 
-# --- FORCE CPU ---
 jax.config.update("jax_platform_name", "cpu")
 
 # --- IDX UTILITIES ---
@@ -45,26 +46,39 @@ def write_idx_labels(path, arr):
         f.write(struct.pack(">II", 2049, arr.shape[0]))
         f.write(memoryview(arr.astype(jnp.uint8)))
 
-# --- AUGMENTATION (JAX + JIT + VMAP) ---
+# --- AUGMENTATION (shift + rotation + zoom) ---
+CENTER = 13.5  # image center
+
 @jax.jit
-def augment_image(image: jnp.ndarray, shift_y: float, shift_x: float) -> jnp.ndarray:
-    """Shifts one image by (shift_y, shift_x) using bilinear interpolation."""
+def augment_image(image, shift_y, shift_x, angle, zoom):
     image = image.reshape((28, 28))
     y, x = jnp.meshgrid(jnp.arange(28), jnp.arange(28), indexing="ij")
-    y_shifted = jnp.clip(y - shift_y, 0, 27)
-    x_shifted = jnp.clip(x - shift_x, 0, 27)
-    return map_coordinates(image, [y_shifted, x_shifted], order=1, mode="constant", cval=0.0).reshape(-1)
+
+    # translate to center
+    y_c = y - CENTER
+    x_c = x - CENTER
+
+    # rotation + zoom
+    cos_a = jnp.cos(angle)
+    sin_a = jnp.sin(angle)
+    y_t = (y_c * cos_a - x_c * sin_a) / zoom + CENTER - shift_y
+    x_t = (y_c * sin_a + x_c * cos_a) / zoom + CENTER - shift_x
+
+    # sample
+    out = map_coordinates(image, [y_t, x_t], order=1, mode="constant", cval=0.0)
+    return out.reshape(-1)
 
 @jax.jit
-def batch_augment(images, shift_y, shift_x):
-    return jax.vmap(augment_image)(images, shift_y, shift_x)
+def batch_augment(images, shift_y, shift_x, angles, zooms):
+    return jax.vmap(augment_image)(images, shift_y, shift_x, angles, zooms)
 
-def generate_shifts(key, n, max_shift):
-    """Generate random shifts for n images."""
-    key_y, key_x = random.split(key)
-    shift_y = random.uniform(key_y, (n,), minval=-max_shift, maxval=max_shift)
-    shift_x = random.uniform(key_x, (n,), minval=-max_shift, maxval=max_shift)
-    return shift_y, shift_x
+def generate_aug_params(key, n):
+    key_shift, key_angle, key_zoom = random.split(key, 3)
+    shift_y = random.uniform(key_shift, (n,), minval=-max_shift, maxval=max_shift)
+    shift_x = random.uniform(key_shift, (n,), minval=-max_shift, maxval=max_shift)
+    angles = random.uniform(key_angle, (n,), minval=-max_angle, maxval=max_angle)
+    zooms = random.uniform(key_zoom, (n,), minval=zoom_range[0], maxval=zoom_range[1])
+    return shift_y, shift_x, angles, zooms
 
 # --- MAIN ---
 def prepare_augmented_data():
@@ -92,7 +106,7 @@ def prepare_augmented_data():
 
     images_f32 = orig_images.astype(jnp.float32) / 255.0
     total_aug = len(images_f32) * augmentations_per_image
-    print(f"⚙️ Generating {total_aug} augmented images...")
+    print(f"Generating {total_aug} augmented images...")
 
     key = random.PRNGKey(0)
     augmented_chunks = []
@@ -104,8 +118,8 @@ def prepare_augmented_data():
 
         for _ in range(augmentations_per_image):
             key, subkey = random.split(key)
-            shift_y, shift_x = generate_shifts(subkey, len(batch), max_shift)
-            aug_batch = batch_augment(batch, shift_y, shift_x)
+            shift_y, shift_x, angles, zooms = generate_aug_params(subkey, len(batch))
+            aug_batch = batch_augment(batch, shift_y, shift_x, angles, zooms)
             augmented_chunks.append(aug_batch)
             augmented_labels.append(labels)
 
@@ -114,14 +128,17 @@ def prepare_augmented_data():
     augmented_images = jnp.concatenate(augmented_chunks)
     augmented_labels = jnp.concatenate(augmented_labels)
 
-    # Combine: originals first, augmented last
     combined_images = jnp.concatenate((orig_images, (augmented_images * 255).astype(jnp.uint8)))
     combined_labels = jnp.concatenate((orig_labels, augmented_labels))
 
-    print(f"Writing {len(combined_images)} total images to original MNIST files...")
-    write_idx_images(IMG_PATH, combined_images)
-    write_idx_labels(LBL_PATH, combined_labels)
-    print("Done. Originals first, then augmented. Files overwritten.")
+    # write to new files (to preserve originals)
+    out_img = "data/train-images-augmented-idx3-ubyte"
+    out_lbl = "data/train-labels-augmented-idx1-ubyte"
+
+    print(f"Writing {len(combined_images)} total images to new files...")
+    write_idx_images(out_img, combined_images)
+    write_idx_labels(out_lbl, combined_labels)
+    print("Done. Originals first, then augmented.")
 
 if __name__ == "__main__":
     prepare_augmented_data()
