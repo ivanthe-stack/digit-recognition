@@ -1,8 +1,8 @@
 # Тук ще дефинирам главните параметри:
 network_size = [784, 16, 16, 10]
 learning_rate = 0.1
-number_of_epochs = 1000
-images_to_train_on = 10000
+number_of_epochs = 10000
+images_to_train_on = 60000
 
 
 import math

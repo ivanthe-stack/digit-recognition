@@ -275,7 +275,7 @@ if __name__ == "__main__":
         max_train=net.images_to_train_on,
         seed=np.random.randint(0, 2**31 - 1),
         log_every=10,
-        test_eval_every=0,
+        test_eval_every=50,
         max_test=None,
     )
 
