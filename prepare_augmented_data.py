@@ -11,7 +11,7 @@ augmentations_per_image = 10
 max_shift = 5
 max_angle = jnp.pi / 12   # ±15 degrees
 zoom_range = (0.9, 1.1)
-batch_size = 2000         # adjust for RAM
+batch_size = 2000  # adjust for RAM
 # ---------------
 
 jax.config.update("jax_platform_name", "cpu")
@@ -46,25 +46,23 @@ def write_idx_labels(path, arr):
         f.write(struct.pack(">II", 2049, arr.shape[0]))
         f.write(memoryview(arr.astype(jnp.uint8)))
 
-# --- AUGMENTATION (shift + rotation + zoom) ---
-CENTER = 13.5  # image center
+# --- AUGMENTATION ---
+CENTER = 13.5  # center of MNIST image (0-indexed grid)
 
 @jax.jit
 def augment_image(image, shift_y, shift_x, angle, zoom):
+    """Applies shift, rotation, and zoom to one image."""
     image = image.reshape((28, 28))
     y, x = jnp.meshgrid(jnp.arange(28), jnp.arange(28), indexing="ij")
 
-    # translate to center
     y_c = y - CENTER
     x_c = x - CENTER
 
-    # rotation + zoom
     cos_a = jnp.cos(angle)
     sin_a = jnp.sin(angle)
     y_t = (y_c * cos_a - x_c * sin_a) / zoom + CENTER - shift_y
     x_t = (y_c * sin_a + x_c * cos_a) / zoom + CENTER - shift_x
 
-    # sample
     out = map_coordinates(image, [y_t, x_t], order=1, mode="constant", cval=0.0)
     return out.reshape(-1)
 
@@ -89,7 +87,7 @@ def prepare_augmented_data():
     lbl_path_to_read = LBL_PATH + ".gz" if os.path.exists(LBL_PATH + ".gz") else LBL_PATH
 
     if not os.path.exists(img_path_to_read):
-        print("Error: Missing MNIST image file.")
+        print("Missing MNIST image file.")
         return
 
     with open(img_path_to_read, "rb") as f:
@@ -106,7 +104,7 @@ def prepare_augmented_data():
 
     images_f32 = orig_images.astype(jnp.float32) / 255.0
     total_aug = len(images_f32) * augmentations_per_image
-    print(f"Generating {total_aug} augmented images...")
+    print(f"Generating {total_aug} augmented images (shift + rotation + zoom)...")
 
     key = random.PRNGKey(0)
     augmented_chunks = []
@@ -131,14 +129,10 @@ def prepare_augmented_data():
     combined_images = jnp.concatenate((orig_images, (augmented_images * 255).astype(jnp.uint8)))
     combined_labels = jnp.concatenate((orig_labels, augmented_labels))
 
-    # write to new files (to preserve originals)
-    out_img = "data/train-images-augmented-idx3-ubyte"
-    out_lbl = "data/train-labels-augmented-idx1-ubyte"
-
-    print(f"Writing {len(combined_images)} total images to new files...")
-    write_idx_images(out_img, combined_images)
-    write_idx_labels(out_lbl, combined_labels)
-    print("Done. Originals first, then augmented.")
+    print(f"Writing {len(combined_images)} total images back to MNIST files...")
+    write_idx_images(IMG_PATH, combined_images)
+    write_idx_labels(LBL_PATH, combined_labels)
+    print("Done. Originals first, then augmented (files overwritten).")
 
 if __name__ == "__main__":
     prepare_augmented_data()
